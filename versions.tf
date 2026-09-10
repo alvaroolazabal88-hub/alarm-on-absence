@@ -6,6 +6,12 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+
+    }
   }
   backend "s3" {
     bucket       = "s3-backend-alarm-on-absence-0263443218"
