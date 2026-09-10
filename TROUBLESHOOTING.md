@@ -214,3 +214,125 @@ Single quotes:
 ```
 git commit -m 'budget: $10 monthly cap with forecasted alert at 75%'
 ```
+
+---
+
+## Cannot reserve Lambda concurrency on a new account
+
+**Symptom**
+
+```
+Error: setting Lambda Function concurrency: PutFunctionConcurrency,
+StatusCode: 400, InvalidParameterValueException: Specified
+ReservedConcurrentExecutions for function decreases account's
+UnreservedConcurrentExecution below its minimum value of [10].
+```
+
+**Cause**
+
+New AWS accounts start with a total concurrent-execution limit of 10
+(established accounts get 1,000). AWS requires at least 10 executions to
+stay unreserved at all times, so reserving even 1 for a single function
+leaves fewer than the minimum.
+
+**Fix**
+
+Removed `reserved_concurrent_executions` from the function. At this
+volume — one scheduled run every 15 minutes, finishing in seconds — an
+uncapped function carries no real risk. If a hard cap is genuinely
+needed later, request a concurrency limit increase through Service
+Quotas first.
+
+**Consequence for the design**
+
+The kill switch was going to be `reserved_concurrent_executions = 0`.
+It moves instead to the EventBridge schedule's `state = "DISABLED"`,
+which stops new invocations at the trigger rather than crippling the
+function. Arguably cleaner: the function stays intact and testable, and
+only the schedule is toggled.
+
+---
+
+## AWS CLI and Terraform pointing at different regions
+
+**Symptom**
+
+```
+ResourceNotFoundException: Function not found:
+arn:aws:lambda:us-west-2:...:function:alarm-on-absence-ingest
+```
+
+Followed by "The specified log group does not exist." The resources
+were created fine — the ARN in the error shows `us-west-2` while
+Terraform deploys to `us-east-1`.
+
+**Cause**
+
+The AWS CLI default region (`~/.aws/config`) was `us-west-2`, left over
+from earlier. The Terraform provider block is `us-east-1`. The
+resources exist; the CLI was looking in the wrong region.
+
+**Fix**
+
+```bash
+export AWS_DEFAULT_REGION=us-east-1
+```
+
+for the session, or align `~/.aws/config` with the provider block
+permanently.
+
+---
+
+## Building the Lambda IAM policy from denials, not guesses
+
+**Not an error — this is the intended method.**
+
+The execution policy started with logs permissions only. Each manual
+invocation then failed on exactly one missing permission, which was
+read from the error and added — nothing more.
+
+**Denial 1**
+
+```
+AccessDenied ... not authorized to perform: cloudwatch:PutMetricData
+because no identity-based policy allows the cloudwatch:PutMetricData action
+```
+
+Raised at `handler.py:26` → `publish_metric("FetchesCompleted", 1)`.
+
+Added `cloudwatch:PutMetricData`, constrained by a
+`cloudwatch:namespace` condition so the role can only publish to the
+`AlarmOnAbsence` namespace, not every namespace in the account.
+
+**Denial 2**
+
+(pending — next invocation will hit `s3:PutObject`)
+
+**Why do it this way**
+
+The finished policy contains only the actions the code actually
+exercised. A policy written from memory always carries "just in case"
+permissions that never get used. This one can be read top to bottom and
+every line maps to a real call in `handler.py`.
+
+---
+
+## Policy change applied but Lambda still denied
+
+**Symptom**
+
+Added `cloudwatch:PutMetricData` to the role policy, ran `terraform
+apply`, invoked immediately — still `AccessDenied` on `PutMetricData`.
+Reading the live policy with `aws iam get-role-policy` confirmed the
+permission was there.
+
+**Cause**
+
+IAM is eventually consistent. A policy change takes up to a minute to
+propagate across AWS. The invocation ran against the old policy still
+cached.
+
+**Fix**
+
+Wait ~60 seconds after `apply`, then invoke again. If the live policy
+looks right, the permission is right — just not everywhere yet.
