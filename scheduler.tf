@@ -36,6 +36,7 @@ resource "aws_iam_role_policy" "scheduler" {
 resource "aws_scheduler_schedule" "ingest" {
   name       = "alarm-on-absence-ingest-schedule"
   group_name = "default"
+  state      = "ENABLED"
 
   flexible_time_window {
     mode = "OFF"

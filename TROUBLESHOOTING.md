@@ -336,3 +336,102 @@ cached.
 
 Wait ~60 seconds after `apply`, then invoke again. If the live policy
 looks right, the permission is right — just not everywhere yet.
+
+---
+
+## `TF_VAR_` environment variable silently ignored
+
+**Symptom**
+
+Set `export TF_VAR_alert_email=...` and ran `terraform apply -replace=...`
+three times to test a different email address. The subscription endpoint
+in AWS never changed — it stayed whatever `terraform.tfvars` said.
+
+**Cause**
+
+I (wrongly) said environment variables override `terraform.tfvars`. They
+don't. Terraform's real precedence, highest to lowest:
+
+```
+-var / -var-file on the command line
+*.auto.tfvars(.json)
+terraform.tfvars.json
+terraform.tfvars       <- this file
+environment variables  <- what I told him to use
+default
+```
+
+A `terraform.tfvars` file beats an environment variable every time. The
+`export` was silently doing nothing.
+
+**Fix**
+
+Use `-var` on the command line for a one-off override — it outranks the
+file:
+
+```bash
+terraform apply -replace="..." -var="alert_email=other@address.com"
+```
+
+**Lesson**
+
+Don't guess precedence rules from memory, even ones that feel obvious.
+Verify against the docs before giving an instruction that depends on them.
+
+---
+
+## SNS email confirmation never arrives — UNRESOLVED
+
+**Symptom**
+
+Two subscriptions created (two different real Gmail addresses), both
+stuck in `PendingConfirmation`. No confirmation email in inbox, spam, or
+promotions on either. Tried:
+
+- Recreating the subscription via `terraform apply -replace`
+- Overriding the destination with `-var` (proved the resource itself
+  works — CloudTrail shows the `Subscribe` API calls succeeding)
+- The console's own "Request confirmation" resend button
+
+None produced an email.
+
+**Ruled out**
+
+- Not the SES sandbox — SNS email subscriptions don't route through SES
+  at all; that's a different service.
+- Not a Terraform bug — the resource applies cleanly and AWS accepts
+  every `Subscribe` call (confirmed in CloudTrail).
+- Not one specific mailbox — two different real Gmail addresses, same
+  result.
+
+**Why it stops here**
+
+AWS's own documentation states SNS does not provide detailed delivery
+logs for the email protocol. There is no API, no CloudWatch metric, no
+CloudTrail event that shows what happened to the message after AWS
+accepted the `Subscribe` call. This is the first problem in this
+project that genuinely cannot be diagnosed from the CLI.
+
+**Additional things tried and ruled out**
+
+- A second real Gmail address (different account) — same result.
+- The AWS console's own "Request confirmation" resend button.
+- Deleting and fully recreating the SNS topic (not just the
+  subscription) — new ARN, same result.
+- Gmail filters/rules on both accounts that might silently delete or
+  skip-inbox mail from `amazonaws.com` — none found on either address.
+- SMS as an alternate protocol — blocked separately: sending SMS to US
+  numbers requires a registered origination identity (10DLC, toll-free
+  number, or short code), which is a multi-day registration process,
+  not a same-session fix.
+
+**Current status**
+
+Parked, at the ceiling of what's diagnosable from this end. The alarms
+don't require a confirmed subscription to be built or tested — alarm
+state transitions (OK/ALARM) are verified directly via
+`aws cloudwatch describe-alarms`, independent of whether notification
+delivery works. A well-scoped question, backed by this evidence, is a
+good candidate for AWS re:Post — free, matches other reported cases of
+the same symptom, and doesn't block anything while it waits for an
+answer.
