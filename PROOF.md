@@ -34,13 +34,21 @@ confirmed by AWS's own evaluation engine, not by anything I asserted.
 
 ```
 alarm-on-absence-not-invoked
+  Alarm updated from ALARM to OK              2026-09-12T17:42:42.572000-04:00
   Alarm updated from OK to ALARM              2026-09-12T01:31:42.573000-04:00
   Alarm updated from INSUFFICIENT_DATA to OK  2026-09-12T00:29:42.571000-04:00
 
 alarm-on-absence-no-writing-data
+  Alarm updated from ALARM to OK              2026-09-12T17:42:22.557000-04:00
   Alarm updated from OK to ALARM              2026-09-12T01:31:22.555000-04:00
   Alarm updated from INSUFFICIENT_DATA to OK  2026-09-12T00:29:22.557000-04:00
 ```
+
+The `state = "DISABLED"` was reverted to `"ENABLED"` after the test. Both
+alarms cleared themselves — `ALARM → OK` — the moment real invocations
+resumed, with no manual intervention on the alarms at all. The full
+lifecycle a system like this is supposed to go through, observed end to
+end: healthy, broken on purpose, detected, recovered.
 
 ## What this does *not* prove
 
