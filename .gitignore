@@ -1,5 +1,6 @@
 .terraform/
 *.tfstate
-*.tfstate.backup 
+*.tfstate.backup
 lambda.zip
 terraform.tfvars
+.DS_Store

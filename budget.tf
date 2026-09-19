@@ -12,4 +12,8 @@ resource "aws_budgets_budget" "monthly" {
     notification_type          = "FORECASTED"
     subscriber_email_addresses = [var.alert_email]
   }
+  cost_filter {
+    name   = "TagKeyValue"
+    values = ["user:Project$alarm-on-absence"]
+  }
 }
